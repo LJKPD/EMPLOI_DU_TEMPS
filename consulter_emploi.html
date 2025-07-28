@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interface AJAX Emploi du Temps</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #278cf1 0%, #012d54 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .card {
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 15px;
+        }
+        .seance-card {
+            background: white;
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .jour-header {
+            background: #007bff;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <br><br>
+        <h1 class="text-center text-white mb-4">Consulter l'emploi du temps</h1>
+
+        <br><br><br>
+        
+        <div class="row">
+            <!-- Sélection de classe -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Sélection de classe</h5>
+                    </div>
+                    <div class="card-body">
+                        <select id="classeSelect" class="form-select mb-3" onchange="chargerEmploi()">
+                            <option value="">Choisir une classe...</option>
+                        </select>
+                        
+                        <button class="btn btn-success w-100" onclick="voirXML()">
+                            Voir XML brut
+                        </button> <br><br>
+
+                        <button class="btn btn-primary w-100" onclick="voirTransformationXSLT()">
+                            Transformation XSLT
+                        </button> <br><br>
+                        
+                        <button class="btn btn-info w-100" onclick="voirFeuilleXSL()">
+                            Voir feuille XSL
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Affichage emploi du temps -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0" id="titreEmploi">Emploi du temps</h5>
+                    </div>
+                    <div class="card-body" id="contenuEmploi">
+                        <p class="text-muted text-center">Sélectionnez une classe pour voir l'emploi du temps</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Charger les classes au démarrage
+        document.addEventListener('DOMContentLoaded', function() {
+            chargerClasses();
+        });
+
+        // Fonction pour charger la liste des classes - VERSION CORRIGÉE
+        async function chargerClasses() {
+            try {
+                const response = await fetch('php/get_classes.php');
+                
+                // Vérifier si la réponse est OK
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                let classes;
+                if (data.success && data.classes) {
+                    classes = data.classes;
+                } else if (Array.isArray(data)) {
+                    classes = data;
+                } else if (data.error) {
+                    // Format d'erreur
+                    throw new Error(data.error);
+                } else {
+                    throw new Error('Format de données non reconnu');
+                }
+                
+                // Vérifier que classes est bien un tableau
+                if (!Array.isArray(classes)) {
+                    throw new Error('Les données classes ne sont pas un tableau');
+                }
+                
+                const select = document.getElementById('classeSelect');
+                select.innerHTML = '<option value="">Choisir une classe...</option>';
+                
+                // CORRECTION : Boucle sécurisée
+                classes.forEach(classe => {
+                    const option = document.createElement('option');
+                    option.value = classe.id_classe;
+                    option.textContent = `${classe.nom_filiere}${classe.niveau}`;
+                    select.appendChild(option);
+                });
+                
+                console.log(`${classes.length} classe(s) chargée(s) avec succès`);
+                
+            } catch (error) {
+                console.error('Erreur lors du chargement des classes:', error);
+                document.getElementById('classeSelect').innerHTML = '<option value="">Erreur de chargement</option>';
+                alert(`Erreur lors du chargement des classes: ${error.message}`);
+            }
+        }
+
+        // Fonction pour charger l'emploi du temps d'une classe
+        async function chargerEmploi() {
+            const classeId = document.getElementById('classeSelect').value;
+            const contenu = document.getElementById('contenuEmploi');
+            const titre = document.getElementById('titreEmploi');
+            
+            if (!classeId) {
+                contenu.innerHTML = '<p class="text-muted text-center">Sélectionnez une classe pour voir l\'emploi du temps</p>';
+                titre.textContent = 'Emploi du temps';
+                return;
+            }
+
+            // Afficher un indicateur de chargement
+            contenu.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p>Chargement...</p></div>';
+
+            try {
+                // Récupérer le XML
+                const response = await fetch(`php/generer_emploi_xml.php?classe_id=${classeId}`);
+                
+                // CORRECTION : Vérifier la réponse HTTP
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const xmlText = await response.text();
+                
+                // CORRECTION : Vérifier si c'est une erreur XML
+                if (xmlText.includes('<erreur>')) {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                    const erreur = xmlDoc.querySelector('erreur').textContent;
+                    throw new Error(erreur);
+                }
+                
+                // Parser le XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                
+                // CORRECTION : Vérifier les erreurs de parsing XML
+                if (xmlDoc.querySelector('parsererror')) {
+                    throw new Error('XML malformé reçu du serveur');
+                }
+                
+                // Extraire les informations
+                const emploi = xmlDoc.querySelector('emploi');
+                if (!emploi) {
+                    throw new Error('Structure XML invalide - balise emploi manquante');
+                }
+                
+                const className = emploi.getAttribute('classe');
+                const seances = xmlDoc.querySelectorAll('seance');
+                
+                // Mettre à jour le titre
+                titre.textContent = `Emploi du temps - Classe ${className}`;
+                
+                // Générer le HTML
+                let html = '';
+                
+                if (seances.length === 0) {
+                    html = '<p class="text-center text-muted">Aucune séance programmée pour cette classe</p>';
+                } else {
+                    // Grouper par jour
+                    const emploiParJour = {};
+                    seances.forEach(seance => {
+                        const jour = seance.getAttribute('jour');
+                        if (!emploiParJour[jour]) {
+                            emploiParJour[jour] = [];
+                        }
+                        emploiParJour[jour].push(seance);
+                    });
+                    
+                    // Afficher par jour
+                    const jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+                    
+                    jours.forEach(jour => {
+                        if (emploiParJour[jour]) {
+                            html += `<div class="jour-header">${jour}</div>`;
+                            
+                            emploiParJour[jour].forEach(seance => {
+                                html += `
+                                    <div class="seance-card">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <strong class="text-primary">
+                                                    ${seance.getAttribute('debut')} - ${seance.getAttribute('fin')}
+                                                </strong>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <span class="badge bg-success">${seance.getAttribute('module')}</span>
+                                            </div>
+                                            <div class="col-md-3">
+                                                ${seance.getAttribute('prof')}
+                                            </div>
+                                            <div class="col-md-3">
+                                                ${seance.getAttribute('salle')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                        }
+                    });
+                }
+                
+                contenu.innerHTML = html;
+                console.log(`Emploi du temps affiché pour la classe ${className} - ${seances.length} séance(s)`);
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                contenu.innerHTML = `<div class="alert alert-danger">Erreur lors du chargement de l'emploi du temps: ${error.message}</div>`;
+            }
+        }
+
+        // Fonction pour voir le XML brut
+        function voirXML() {
+            const classeId = document.getElementById('classeSelect').value;
+            if (classeId) {
+                window.open(`php/generer_emploi_xml.php?classe_id=${classeId}`, '_blank');
+            } else {
+                alert('Veuillez d\'abord sélectionner une classe');
+            }
+        }
+
+        // Fonction pour voir la transformation XSLT
+        function voirTransformationXSLT() {
+            const classeId = document.getElementById('classeSelect').value;
+            if (classeId) {
+                window.open(`php/transform_emploi_xslt.php?classe_id=${classeId}`, '_blank');
+            } else {
+                alert('Veuillez d\'abord sélectionner une classe');
+            }
+        }
+
+        // Fonction pour voir la feuille XSL
+         function voirFeuilleXSL() {
+            window.open(`xsl/emploi_transform.xsl`, '_blank');
+        }
+    </script>
+</body>
+</html>
